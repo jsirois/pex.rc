@@ -32,7 +32,14 @@ use pex::{
 };
 use platform::{Perms, mark_executable, path_as_bytes, path_as_str, symlink_or_link_or_copy};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use scripts::{Scripts, VenvPex, VenvPexRepl};
+use scripts::{
+    Scripts,
+    VenvPex,
+    VenvPexExtraSysPathPth,
+    VenvPexExtraSysPathPy,
+    VenvPexExtraSysPathStart,
+    VenvPexRepl,
+};
 use serde_json::Value;
 use zip::ZipArchive;
 
@@ -900,6 +907,7 @@ pub fn populate<'a>(
         provenance,
     )?;
     if matches!(scope, InstallScope::All | InstallScope::Srcs) {
+        write_pex_extra_sys_path_support_files(venv, scripts)?;
         write_main(
             venv,
             shebang_interpreter,
@@ -1062,6 +1070,45 @@ impl<'a> Display for PythonListTupleStrStr<'a> {
     }
 }
 
+fn write_pex_extra_sys_path_support_files(
+    venv: &Virtualenv,
+    scripts: &mut Scripts,
+) -> anyhow::Result<()> {
+    // See: https://peps.python.org/pep-0829/
+    let mut pex_extra_sys_path_py_fp =
+        File::create_new(venv.site_packages_path("PEX_EXTRA_SYS_PATH.py"))?;
+    pex_extra_sys_path_py_fp
+        .write_all(VenvPexExtraSysPathPy::read(scripts)?.contents().as_bytes())?;
+
+    let python_version = {
+        let version = venv.interpreter.raw().version;
+        (version.major, version.minor)
+    };
+
+    // Starting with Python 3.15 .start files trump import lines in .path files.
+    // See: https://peps.python.org/pep-0829/#abstract
+    if python_version >= (3, 15) {
+        let mut pex_extra_sys_path_start_fp =
+            File::create_new(venv.site_packages_path("PEX_EXTRA_SYS_PATH.start"))?;
+        pex_extra_sys_path_start_fp.write_all(
+            VenvPexExtraSysPathStart::read(scripts)?
+                .contents()
+                .as_bytes(),
+        )?;
+    }
+
+    // After ~Python 3.20 .pth import lines will start to raise warnings; so we no longer emit a
+    // .pth compatibility bridge. See: https://peps.python.org/pep-0829/#abstract
+    if python_version < (3, 20) {
+        let mut pex_extra_sys_path_pth_fp =
+            File::create_new(venv.site_packages_path("PEX_EXTRA_SYS_PATH.pth"))?;
+        pex_extra_sys_path_pth_fp
+            .write_all(VenvPexExtraSysPathPth::read(scripts)?.contents().as_bytes())?;
+    }
+
+    Ok(())
+}
+
 fn write_main(
     venv: &Virtualenv,
     shebang_interpreter: &Path,
@@ -1070,22 +1117,6 @@ fn write_main(
     scripts: &mut Scripts,
     bin_path_override: Option<BinPath>,
 ) -> anyhow::Result<()> {
-    let pex_extra_sys_path_pth = venv.site_packages_path("PEX_EXTRA_SYS_PATH.pth");
-    let mut pex_extra_sys_path_pth_fp = File::create_new(&pex_extra_sys_path_pth)?;
-    for env_var in ["PEX_EXTRA_SYS_PATH", "__PEX_EXTRA_SYS_PATH__"].into_iter() {
-        // # N.B.: .pth import lines must be single lines:
-        // https://docs.python.org/3/library/site.html
-        writeln!(
-            pex_extra_sys_path_pth_fp,
-            "import os, sys; \
-            sys.path.extend(\
-            entry \
-            for entry in os.environ.get('{env_var}', '').split(os.pathsep) \
-            if entry\
-            )",
-        )?;
-    }
-
     let main_py = venv.prefix().join("__main__.py");
     let mut main_py_fp = File::create_new(&main_py)?;
     write_shebang_bytes(&mut main_py_fp, shebang_interpreter, shebang_arg)?;
