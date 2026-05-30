@@ -12,7 +12,7 @@ use fs_err::File;
 use interpreter::Interpreter;
 use logging_timer::time;
 use platform::symlink_or_link_or_copy;
-use python_platform::PythonPlatform;
+use python_platform::{PythonPlatform, PythonVersion};
 use scripts::{IdentifyInterpreter, Scripts, VendoredVirtualenv};
 use target_lexicon::{HOST, OperatingSystem};
 
@@ -21,18 +21,17 @@ const SCRIPTS_DIR: &str = "bin";
 
 #[cfg(unix)]
 fn executable_rel_path(interpreter: &Interpreter) -> Cow<'static, str> {
-    let interpreter = interpreter.raw();
-    if interpreter.pypy_version.is_some() {
+    if interpreter.details.pypy_version.is_some() {
         Cow::Owned(format!(
             "{SCRIPTS_DIR}/pypy{major}.{minor}",
-            major = interpreter.version.major,
-            minor = interpreter.version.minor
+            major = interpreter.details.version.major,
+            minor = interpreter.details.version.minor
         ))
     } else {
         Cow::Owned(format!(
             "{SCRIPTS_DIR}/python{major}.{minor}",
-            major = interpreter.version.major,
-            minor = interpreter.version.minor
+            major = interpreter.details.version.major,
+            minor = interpreter.details.version.minor
         ))
     }
 }
@@ -42,11 +41,11 @@ const SCRIPTS_DIR: &str = "Scripts";
 
 #[cfg(windows)]
 fn executable_rel_path(interpreter: &Interpreter) -> Cow<'static, str> {
-    if interpreter.raw().pypy_version.is_some() {
+    if interpreter.details.pypy_version.is_some() {
         Cow::Owned(format!(
             "{SCRIPTS_DIR}\\pypy{major}.{minor}.exe",
-            major = interpreter.raw().version.major,
-            minor = interpreter.raw().version.minor
+            major = interpreter.details.version.major,
+            minor = interpreter.details.version.minor
         ))
     } else {
         Cow::Borrowed("Scripts\\python.exe")
@@ -105,20 +104,18 @@ impl<'a> Virtualenv<'a> {
 
         let mut venv_interpreter = interpreter.clone();
         if HOST.operating_system == OperatingSystem::Windows {
-            venv_interpreter.set_realpath(&path);
+            venv_interpreter.realpath = path.clone();
         }
-        venv_interpreter.with_raw_mut(|venv_interpreter| {
-            if venv_interpreter.base_prefix.is_none() {
-                venv_interpreter.base_prefix = Some(venv_interpreter.prefix.clone());
+        if venv_interpreter.details.base_prefix.is_none() {
+            venv_interpreter.details.base_prefix = Some(venv_interpreter.details.prefix.clone());
+        }
+        venv_interpreter.details.prefix = venv_dir.to_path_buf();
+        venv_interpreter.details.path = path;
+        for path in venv_interpreter.details.paths.values_mut() {
+            if let Ok(prefix_rel_path) = path.strip_prefix(&interpreter.details.prefix) {
+                *path = venv_interpreter.details.prefix.join(prefix_rel_path);
             }
-            venv_interpreter.prefix = Cow::Owned(venv_dir.to_path_buf());
-            venv_interpreter.path = Cow::Owned(path);
-            for path in venv_interpreter.paths.values_mut() {
-                if let Ok(prefix_rel_path) = path.strip_prefix(&interpreter.raw().prefix) {
-                    *path = venv_interpreter.prefix.join(prefix_rel_path);
-                }
-            }
-        });
+        }
         Ok(venv_interpreter)
     }
 
@@ -134,29 +131,28 @@ impl<'a> Virtualenv<'a> {
     ) -> anyhow::Result<Self> {
         let venv_interpreter = Self::host_interpreter(path.as_ref(), &interpreter)?;
 
-        let site_packages_relpath =
-            if interpreter.raw().version.major == 3 && interpreter.raw().version.minor >= 3 {
-                create_pep_405_venv(
-                    interpreter,
-                    path.as_ref(),
-                    linker,
-                    include_system_site_packages,
-                    scripts,
-                    pip,
-                    prompt,
-                )?
-            } else {
-                let virtualenv_script = VendoredVirtualenv::read(scripts)?;
-                create_virtualenv_venv(
-                    &interpreter,
-                    path.as_ref(),
-                    linker,
-                    virtualenv_script,
-                    include_system_site_packages,
-                    pip,
-                    prompt,
-                )?
-            };
+        let site_packages_relpath = if interpreter.details.version >= PythonVersion::simple(3, 3) {
+            create_pep_405_venv(
+                interpreter,
+                path.as_ref(),
+                linker,
+                include_system_site_packages,
+                scripts,
+                pip,
+                prompt,
+            )?
+        } else {
+            let virtualenv_script = VendoredVirtualenv::read(scripts)?;
+            create_virtualenv_venv(
+                &interpreter,
+                path.as_ref(),
+                linker,
+                virtualenv_script,
+                include_system_site_packages,
+                pip,
+                prompt,
+            )?
+        };
 
         Ok(Self {
             interpreter: venv_interpreter,
@@ -166,12 +162,12 @@ impl<'a> Virtualenv<'a> {
     }
 
     pub fn prefix(&self) -> &Path {
-        &self.interpreter.raw().prefix
+        &self.interpreter.details.prefix
     }
 
     pub fn script_path(&self, rel_path: impl AsRef<Path>) -> PathBuf {
         self.interpreter
-            .raw()
+            .details
             .prefix
             .join(self.bin_dir_relpath)
             .join(rel_path)
@@ -179,7 +175,7 @@ impl<'a> Virtualenv<'a> {
 
     pub fn site_packages_path(&self, rel_path: impl AsRef<Path>) -> PathBuf {
         self.interpreter
-            .raw()
+            .details
             .prefix
             .join(self.site_packages_relpath.as_ref())
             .join(rel_path)
@@ -187,9 +183,9 @@ impl<'a> Virtualenv<'a> {
 
     pub fn create_additional_pythons(&self) -> anyhow::Result<()> {
         for rel_path in self.interpreter.prefix_rel_paths() {
-            let dest = self.interpreter.raw().prefix.join(rel_path.as_ref());
+            let dest = self.interpreter.details.prefix.join(rel_path.as_ref());
             if !dest.exists() {
-                symlink_or_link_or_copy(self.interpreter.raw().path.as_ref(), dest, true)?;
+                symlink_or_link_or_copy(&self.interpreter.details.path, dest, true)?;
             }
         }
         Ok(())
@@ -337,11 +333,10 @@ fn create_pep_405_venv<'a>(
 ) -> anyhow::Result<Cow<'a, Path>> {
     // See: https://peps.python.org/pep-0405/
     let base_interpreter = interpreter.resolve_base_interpreter(scripts)?;
-    let raw_base_interpreter = base_interpreter.raw();
-    let home = base_interpreter.realpath().parent().ok_or_else(|| {
+    let home = base_interpreter.realpath.parent().ok_or_else(|| {
         anyhow!(
             "Failed to calculate the home dir of venv base python {path}",
-            path = base_interpreter.realpath().display()
+            path = base_interpreter.realpath.display()
         )
     })?;
     let executable_rel_path = executable_rel_path(&base_interpreter);
@@ -349,9 +344,9 @@ fn create_pep_405_venv<'a>(
     let pyvenv_cfg = PyVenvCfg {
         home: Cow::Borrowed(home),
         include_system_site_packages,
-        version: Some(Cow::Owned(raw_base_interpreter.version.to_string())),
+        version: Some(Cow::Owned(base_interpreter.details.version.to_string())),
         prompt: prompt.map(Cow::Borrowed),
-        executable: Some(Cow::Borrowed(base_interpreter.realpath())),
+        executable: Some(Cow::Borrowed(&base_interpreter.realpath)),
         executable_rel_path: Cow::Borrowed(executable_rel_path),
     };
     pyvenv_cfg.write(path)?;
@@ -360,17 +355,17 @@ fn create_pep_405_venv<'a>(
     if let Some(parent) = venv_python.parent() {
         fs::create_dir_all(parent)?;
     }
-    linker.link(&venv_python, Some(base_interpreter.realpath()), false)?;
+    linker.link(&venv_python, Some(&base_interpreter.realpath), false)?;
     #[cfg(windows)]
     linker.link(
         &venv_python.with_file_name("pythonw.exe"),
-        Some(&base_interpreter.realpath().with_file_name("pythonw.exe")),
+        Some(&base_interpreter.realpath.with_file_name("pythonw.exe")),
         true,
     )?;
     let site_packages_relpath = site_packages_relpath(&base_interpreter);
     fs::create_dir_all(path.join(site_packages_relpath.as_ref()))?;
     if pip {
-        ensure_pip(raw_base_interpreter, &venv_python)?;
+        ensure_pip(&base_interpreter.details, &venv_python)?;
     }
     Ok(site_packages_relpath)
 }
@@ -389,8 +384,7 @@ fn create_virtualenv_venv<'a>(
         .suffix(".py")
         .tempfile()?;
     script.write_all(virtualenv_script.contents().as_bytes())?;
-    let raw_interpreter = interpreter.raw();
-    let mut command = Command::new(raw_interpreter.path.as_ref());
+    let mut command = Command::new(&interpreter.details.path);
     command
         .arg(interpreter.hermetic_args())
         .arg(script.path())
@@ -414,15 +408,15 @@ fn create_virtualenv_venv<'a>(
             workdir = path.display(),
             python_implementation = interpreter.marker_env().platform_python_implementation(),
             python_version = interpreter.marker_env().python_full_version(),
-            python_exe = raw_interpreter.path.as_ref().display(),
+            python_exe = interpreter.details.path.display(),
             stderr = String::from_utf8_lossy(&output.stderr)
         )
     }
 
-    let home = interpreter.realpath().parent().ok_or_else(|| {
+    let home = interpreter.realpath.parent().ok_or_else(|| {
         anyhow!(
             "Failed to calculate the home dir of venv base python {path}",
-            path = interpreter.realpath().display()
+            path = interpreter.realpath.display()
         )
     })?;
     let executable_rel_path = executable_rel_path(interpreter);
@@ -432,9 +426,9 @@ fn create_virtualenv_venv<'a>(
     let pyvenv_cfg = PyVenvCfg {
         home: Cow::Borrowed(home),
         include_system_site_packages,
-        version: Some(Cow::Owned(raw_interpreter.version.to_string())),
+        version: Some(Cow::Owned(interpreter.details.version.to_string())),
         prompt: prompt.map(Cow::Borrowed),
-        executable: Some(Cow::Borrowed(interpreter.realpath())),
+        executable: Some(Cow::Borrowed(&interpreter.realpath)),
         executable_rel_path: Cow::Borrowed(executable_rel_path),
     };
     pyvenv_cfg.write(path.as_ref())?;
@@ -443,18 +437,21 @@ fn create_virtualenv_venv<'a>(
     #[cfg(windows)]
     linker.link(&venv_python.with_file_name("pythonw.exe"), None, true)?;
     if pip {
-        ensure_pip(raw_interpreter, &venv_python)?;
+        ensure_pip(&interpreter.details, &venv_python)?;
     }
     Ok(site_packages_relpath(interpreter))
 }
 
-fn ensure_pip(base_interpreter: &interpreter::RawInterpreter, python: &Path) -> anyhow::Result<()> {
+fn ensure_pip(
+    base_interpreter: &interpreter::InterpreterDetails,
+    python: &Path,
+) -> anyhow::Result<()> {
     if !base_interpreter.has_ensurepip {
         // TODO: Consider embedding or fetching: https://bootstrap.pypa.io/pip/
         bail!(
             "Cannot install Pip since the selected interpreter does not have the `ensurepip` \
             module: {interpreter}",
-            interpreter = base_interpreter.path.as_ref().display()
+            interpreter = base_interpreter.path.display()
         )
     }
 
@@ -473,9 +470,8 @@ fn site_packages_relpath<'a>(interpreter: &Interpreter) -> Cow<'a, Path> {
         // TODO: XXX: Confirm venv layouts for PyPy under Windows.
         return Cow::Borrowed(Path::new("Lib\\site-packages"));
     }
-    let raw_interpreter = interpreter.raw();
     if interpreter.marker_env().platform_python_implementation() == "PyPy"
-        && (raw_interpreter.version.major, raw_interpreter.version.minor) < (3, 8)
+        && interpreter.details.version < PythonVersion::simple(3, 8)
     {
         Cow::Borrowed(Path::new("site-packages"))
     } else {
@@ -489,8 +485,8 @@ fn site_packages_relpath<'a>(interpreter: &Interpreter) -> Cow<'a, Path> {
                         } else {
                             "python"
                         },
-                    major = raw_interpreter.version.major,
-                    minor = raw_interpreter.version.minor
+                    major = interpreter.details.version.major,
+                    minor = interpreter.details.version.minor
                 ))
                 .join("site-packages"),
         )
@@ -514,10 +510,10 @@ mod tests {
         let identification_script = IdentifyInterpreter::read(&mut embedded_scripts).unwrap();
         let interpreter = Interpreter::load(python_exe, &identification_script).unwrap();
         let expected_prefix = interpreter
-            .raw()
+            .details
             .base_prefix
             .as_deref()
-            .unwrap_or(interpreter.raw().prefix.as_ref())
+            .unwrap_or(interpreter.details.prefix.as_ref())
             .to_owned();
         let venv = Virtualenv::create(
             interpreter,
@@ -531,7 +527,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             expected_prefix,
-            venv.interpreter.raw().base_prefix.as_deref().unwrap()
+            venv.interpreter.details.base_prefix.as_deref().unwrap()
         )
     }
 }
