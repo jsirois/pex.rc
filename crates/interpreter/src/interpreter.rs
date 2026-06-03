@@ -331,8 +331,16 @@ impl Interpreter {
         python_exe: &Path,
         identification_script: &IdentifyInterpreter,
     ) -> anyhow::Result<Self> {
-        let interpreter_info = Self::interpreter_info(python_exe)?;
-        Self::load_internal(&interpreter_info, python_exe, identification_script)
+        #[cfg(unix)]
+        let python_exe = crate::pyenv::Pyenv::locate()
+            .map(|pyenv| pyenv.resolve_if_shim(python_exe))
+            .unwrap_or(Ok(Cow::Borrowed(python_exe)))?;
+        let interpreter_info = Self::interpreter_info(python_exe.as_path())?;
+        Self::load_internal(
+            &interpreter_info,
+            python_exe.as_path(),
+            identification_script,
+        )
     }
 
     fn load_internal(

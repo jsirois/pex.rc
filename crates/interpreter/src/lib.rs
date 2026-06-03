@@ -6,11 +6,13 @@
 #![cfg_attr(windows, feature(coroutine_trait))]
 #![cfg_attr(windows, feature(iter_from_coroutine))]
 #![feature(stmt_expr_attributes)]
+#![feature(str_as_str)]
 
 mod constraints;
 mod interpreter;
 
 mod platform;
+mod pyenv;
 mod search_path;
 mod tag;
 mod version;
