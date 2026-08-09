@@ -1,0 +1,22 @@
+version: 2.1
+
+orbs:
+  python: circleci/python@4.0.0
+  rust: circleci/rust@2.0.0
+
+jobs:
+  debug:
+    macos:
+      xcode: 15.4.0
+    steps:
+      - checkout
+      - python/install-packages:
+          pkg-manager: uv
+      - run:
+          name: Debug
+          command: sleep 1800
+
+workflows:
+  debug:
+    jobs:
+      - debug
