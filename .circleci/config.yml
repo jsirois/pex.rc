@@ -8,7 +8,9 @@ jobs:
       - checkout
       - run:
           name: Debug
-          command: sleep 1800
+          command: |
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
+            sleep 1800
 
 workflows:
   debug:
