@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![deny(clippy::all)]
-#![feature(str_as_str)]
+
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub mod commands;
 pub mod compression_method;
 pub mod embeds;
-pub mod package;
 pub mod simplified_target;
 pub mod source;
 pub mod target;
