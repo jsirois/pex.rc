@@ -29,7 +29,7 @@ struct Cli {
         default_value_t = false,
         help = cstr!(
             "Enable experimental commands (displayed in dim yellow; e.g.: \
-            <dim><y>example-cmd</y></dim>)"
+            <dim><y>example-cmd</></>)"
         )
     )]
     experiments: bool,
@@ -148,7 +148,7 @@ const EXPERIMENTAL_COMMAND_WARNING: &str = cstr!(
     "<y!>\
     WARNING: This command is experimental and may change or be removed \
     going forward.\
-    </y!>"
+    </>"
 );
 
 fn main() -> anyhow::Result<()> {
@@ -165,10 +165,10 @@ fn main() -> anyhow::Result<()> {
                     if standard_commands.contains(cmd.get_name()) {
                         cmd
                     } else {
-                        let header = cstr!("<y!>WARNING: Experimental</y!>");
+                        let header = cstr!("<y!>WARNING: Experimental</>");
                         let original_name = cmd.get_name().to_owned();
                         let name = format!(
-                            cstr!("<dim><y>{original_name}</y></dim>"),
+                            cstr!("<dim><y>{original_name}</></>"),
                             original_name = original_name
                         );
                         experimental_commands.insert(name.clone(), original_name.clone());
@@ -202,7 +202,7 @@ fn main() -> anyhow::Result<()> {
             {
                 let experimental_command =
                     ExperimentalCommands::from_subcommand_matches(subcommand, arg_matches)?;
-                eprintln!("{EXPERIMENTAL_COMMAND_WARNING}");
+                anstream::eprintln!("{EXPERIMENTAL_COMMAND_WARNING}");
                 experimental_command.execute()
             } else {
                 Commands::from_arg_matches(&matches)?.execute()
@@ -210,7 +210,7 @@ fn main() -> anyhow::Result<()> {
         }
         None => {
             cli_command
-                .after_help(cstr!("<red>A subcommand is required</red>"))
+                .after_help(cstr!("<red>A subcommand is required</>"))
                 .print_help()?;
             std::process::exit(1)
         }
