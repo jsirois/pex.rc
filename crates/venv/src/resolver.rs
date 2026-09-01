@@ -178,7 +178,7 @@ impl InstalledWheel {
                 };
                 let data_dir = self.metadata_dirs.data_dir().as_path();
                 let data_dir_rel_path = if let Ok(scripts_rel_path) =
-                    abs_path.strip_prefix(&install_paths.scripts)
+                    abs_path.strip_prefix(install_paths.scripts.canonicalize()?)
                 {
                     let has_parent = scripts_rel_path
                         .parent()
@@ -195,14 +195,14 @@ impl InstalledWheel {
                         PythonScript::detect(&abs_path, install_paths.python_version)?;
                     data_dir.join("scripts").join(scripts_rel_path)
                 } else if let Ok(headers_rel_path) =
-                    abs_path.strip_prefix(install_paths.headers(&self.project_name))
+                    abs_path.strip_prefix(install_paths.headers(&self.project_name).canonicalize()?)
                 {
                     data_dir.join("headers").join(headers_rel_path)
-                } else if let Ok(platlib_rel_path) = abs_path.strip_prefix(&install_paths.platlib) {
+                } else if let Ok(platlib_rel_path) = abs_path.strip_prefix(install_paths.platlib.canonicalize()?) {
                     data_dir.join("platlib").join(platlib_rel_path)
-                } else if let Ok(purelib_rel_path) = abs_path.strip_prefix(&install_paths.purelib) {
+                } else if let Ok(purelib_rel_path) = abs_path.strip_prefix(install_paths.purelib.canonicalize()?) {
                     data_dir.join("purelib").join(purelib_rel_path)
-                } else if let Ok(data_rel_path) = abs_path.strip_prefix(&install_paths.data) {
+                } else if let Ok(data_rel_path) = abs_path.strip_prefix(install_paths.data.canonicalize()?) {
                     data_dir.join("data").join(data_rel_path)
                 } else {
                     bail!(
