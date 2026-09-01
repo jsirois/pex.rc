@@ -397,7 +397,11 @@ impl PythonScript {
                     Wrap::T64(header) => header.Subsystem,
                 };
                 return Ok(Some(Self::Windows { path, is_windowed }))
+            } else {
+                eprintln!(">>> Not a PE file: {path}", path=path.display())
             }
+        } else {
+            eprintln!(">>> Not a zipapp: {path}", path=path.display())
         }
         Ok(None)
     }
