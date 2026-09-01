@@ -380,7 +380,9 @@ impl PythonScript {
     }
 
     fn detect_windows(path: &Path) -> anyhow::Result<Option<Self>> {
+        eprintln!(">>> detect_windows script: {path}", path=path.display());
         if !is_executable(path)? {
+            eprintln!("<<< not executable.");
             return Ok(None);
         }
         if let Ok(mut zip) = ZipArchive::new(File::open(path)?)
@@ -403,6 +405,7 @@ impl PythonScript {
 
             Ok(Some(Self::Windows { path, is_windowed }))
         } else {
+            eprintln!("<<< not a zip containing __main__.py.");
             Ok(None)
         }
     }
