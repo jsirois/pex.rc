@@ -14,7 +14,7 @@ use fs_err as fs;
 use fs_err::File;
 use pelite::image::IMAGE_SUBSYSTEM_WINDOWS_GUI;
 use pelite::{PeFile, Wrap};
-use platform::{PosixPath, is_executable};
+use platform::PosixPath;
 use python_platform::PythonVersion;
 use regex::Regex;
 use wheel::{EntryPoints, MetadataDirs, Record, parse_root_is_purelib_from_wheel};
@@ -198,11 +198,17 @@ impl InstalledWheel {
                     abs_path.strip_prefix(install_paths.headers(&self.project_name).canonicalize()?)
                 {
                     data_dir.join("headers").join(headers_rel_path)
-                } else if let Ok(platlib_rel_path) = abs_path.strip_prefix(install_paths.platlib.canonicalize()?) {
+                } else if let Ok(platlib_rel_path) =
+                    abs_path.strip_prefix(install_paths.platlib.canonicalize()?)
+                {
                     data_dir.join("platlib").join(platlib_rel_path)
-                } else if let Ok(purelib_rel_path) = abs_path.strip_prefix(install_paths.purelib.canonicalize()?) {
+                } else if let Ok(purelib_rel_path) =
+                    abs_path.strip_prefix(install_paths.purelib.canonicalize()?)
+                {
                     data_dir.join("purelib").join(purelib_rel_path)
-                } else if let Ok(data_rel_path) = abs_path.strip_prefix(install_paths.data.canonicalize()?) {
+                } else if let Ok(data_rel_path) =
+                    abs_path.strip_prefix(install_paths.data.canonicalize()?)
+                {
                     data_dir.join("data").join(data_rel_path)
                 } else {
                     bail!(
@@ -393,15 +399,15 @@ impl PythonScript {
                 let path = pe_contents.into_inner().into_path();
                 let is_windowed = IMAGE_SUBSYSTEM_WINDOWS_GUI
                     == match pe_file.optional_header() {
-                    Wrap::T32(header) => header.Subsystem,
-                    Wrap::T64(header) => header.Subsystem,
-                };
-                return Ok(Some(Self::Windows { path, is_windowed }))
+                        Wrap::T32(header) => header.Subsystem,
+                        Wrap::T64(header) => header.Subsystem,
+                    };
+                return Ok(Some(Self::Windows { path, is_windowed }));
             } else {
-                eprintln!(">>> Not a PE file: {path}", path=path.display())
+                eprintln!(">>> Not a PE file: {path}", path = path.display())
             }
         } else {
-            eprintln!(">>> Not a zipapp: {path}", path=path.display())
+            eprintln!(">>> Not a zipapp: {path}", path = path.display())
         }
         Ok(None)
     }
@@ -501,6 +507,30 @@ mod tests {
         assert!(
             Command::new("uv")
                 .args(["pip", "install", "--python"])
+                .arg(&tmp_dir)
+                .args(["greenlet", "dill", "cowsay"])
+                .spawn()
+                .unwrap()
+                .wait()
+                .unwrap()
+                .success()
+        );
+
+        let venv = Virtualenv::load(Cow::Owned(tmp_dir), &mut embedded_scripts).unwrap();
+        let installed_wheels = collect_installed_wheels(&venv).unwrap();
+        let install_paths = InstallPaths::for_venv(&venv).unwrap();
+        for installed_wheel in &installed_wheels {
+            installed_wheel
+                .pack(&install_paths, Cursor::new(vec![]))
+                .unwrap();
+        }
+    }
+
+    #[rstest]
+    fn test_collect_installed_wheels_pex(tmp_dir: PathBuf, mut embedded_scripts: Scripts) {
+        assert!(
+            Command::new("uvx")
+                .args(["--from", "pex", "pex3", "venv", "create", "--force", "-d"])
                 .arg(&tmp_dir)
                 .args(["greenlet", "dill", "cowsay"])
                 .spawn()

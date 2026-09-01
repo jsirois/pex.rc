@@ -14,6 +14,7 @@ use interpreter::Interpreter;
 use logging_timer::time;
 use platform::{is_executable, symlink_or_link_or_copy};
 use python_platform::{PythonPlatform, PythonVersion};
+use regex::Regex;
 use scripts::{IdentifyInterpreter, Scripts, VendoredVirtualenv};
 use target_lexicon::{HOST, OperatingSystem};
 
