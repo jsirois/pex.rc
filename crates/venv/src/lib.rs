@@ -3,9 +3,12 @@
 
 #![deny(clippy::all)]
 #![feature(exit_status_error)]
+#![feature(slice_split_once)]
 #![feature(trim_prefix_suffix)]
+extern crate core;
 
 mod provenance;
+mod resolver;
 pub mod venv_pex;
 pub mod virtualenv;
 

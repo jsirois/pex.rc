@@ -67,6 +67,26 @@ struct MetadataDir<'a> {
     version_range: Range<usize>,
 }
 
+impl<'a> MetadataDir<'a> {
+    fn new(dir_name: Cow<'a, str>) -> anyhow::Result<Self> {
+        let project_name_and_version = dir_name
+            .strip_suffix(".data")
+            .or_else(|| dir_name.strip_suffix(".dist-info"))
+            .ok_or_else(|| anyhow!("XXX"))?;
+        let (project_name, version) = project_name_and_version
+            .split_once('-')
+            .ok_or_else(|| anyhow!("XXX"))?;
+        if version.contains('-') {
+            bail!("XXX")
+        }
+        Ok(Self {
+            dir_name: dir_name.clone(),
+            project_name_range: 0..project_name.len(),
+            version_range: project_name.len() + 1..project_name_and_version.len(),
+        })
+    }
+}
+
 fn locate_metadata_dir<'a>(
     project_name: &PackageName,
     version: &Version,
@@ -121,12 +141,32 @@ fn locate_metadata_dir<'a>(
 pub struct MetadataDirs {
     dist_info_dir_name: String,
     #[borrows(dist_info_dir_name)]
-    project_name: &'this str,
+    pub project_name: &'this str,
     #[borrows(dist_info_dir_name)]
-    version: &'this str,
+    pub version: &'this str,
 }
 
 impl MetadataDirs {
+    pub fn from_dist_info_dir(dist_info_dir: impl AsRef<Path>) -> anyhow::Result<Self> {
+        let dist_info_dir_name = dist_info_dir
+            .as_ref()
+            .file_name()
+            .ok_or_else(|| anyhow!(""))?
+            .to_str()
+            .ok_or_else(|| anyhow!(""))?
+            .to_owned();
+
+        let metadata_dir = MetadataDir::new(Cow::Borrowed(&dist_info_dir_name))?;
+        let project_name_range = metadata_dir.project_name_range;
+        let version_range = metadata_dir.version_range;
+
+        Ok(Self::new(
+            dist_info_dir_name,
+            |dist_info_dir| &dist_info_dir[project_name_range],
+            |dist_info_dir| &dist_info_dir[version_range],
+        ))
+    }
+
     pub fn locate_in_dir(
         wheel_dir: &Path,
         project_name: &PackageName,

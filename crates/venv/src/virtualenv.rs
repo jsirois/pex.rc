@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::borrow::Cow;
+use std::ffi::OsStr;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -11,7 +12,7 @@ use fs_err as fs;
 use fs_err::File;
 use interpreter::Interpreter;
 use logging_timer::time;
-use platform::symlink_or_link_or_copy;
+use platform::{is_executable, symlink_or_link_or_copy};
 use python_platform::{PythonPlatform, PythonVersion};
 use scripts::{IdentifyInterpreter, Scripts, VendoredVirtualenv};
 use target_lexicon::{HOST, OperatingSystem};
@@ -271,9 +272,42 @@ impl<'a> PyVenvCfg<'a> {
                 _ => {}
             }
         }
-        if let Some(home) = home
-            && let Some(executable_rel_path) = executable_rel_path
-        {
+        if let Some(home) = home {
+            let executable_rel_path = executable_rel_path
+                .or_else(|| {
+                    let scripts_dir = dir.join(SCRIPTS_DIR);
+                    if let Ok(listing) = scripts_dir.read_dir() {
+                        for entry in listing {
+                            if let Ok(entry) = entry
+                                && entry
+                                    .file_type()
+                                    .ok()
+                                    .map(|file_type| !file_type.is_dir())
+                                    .unwrap_or_default()
+                                && let Some(file_stem) =
+                                    entry.path().file_stem().and_then(OsStr::to_str)
+                            {
+                                // TODO: XXX: Handle python3 python3.14, etc.
+                                for exe_name in ["python", "pypy"] {
+                                    if file_stem == exe_name
+                                        && is_executable(entry.path()).ok().unwrap_or_default()
+                                    {
+                                        return Some(
+                                            Path::new(SCRIPTS_DIR).join(entry.file_name()),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    None
+                })
+                .ok_or_else(|| {
+                    anyhow!(
+                        "Failed to determine the python executable path for the venv in {dir}.",
+                        dir = dir.display()
+                    )
+                })?;
             Ok(Self {
                 home: Cow::Owned(home),
                 include_system_site_packages: include_system_site_packages.unwrap_or_default(),
@@ -284,7 +318,7 @@ impl<'a> PyVenvCfg<'a> {
             })
         } else {
             bail!(
-                "The pyvenv.cfg in {dir} is not valid. It must contain both a home entry and a executable entry.",
+                "The pyvenv.cfg in {dir} is not valid. It must contain a home entry.",
                 dir = dir.display()
             )
         }

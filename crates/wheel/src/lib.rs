@@ -13,6 +13,6 @@ mod tag;
 pub use entry_points::{EntryPoint, EntryPoints};
 pub use file::{MetadataDirs, WheelDir, WheelFile};
 pub use layout::WheelLayout;
-pub use metadata::{MetadataReader, WheelMetadata};
+pub use metadata::{MetadataReader, WheelMetadata, parse_root_is_purelib_from_wheel};
 pub use record::Record;
 pub use tag::Tag;

@@ -34,12 +34,12 @@ pub trait MetadataReader {
     ) -> anyhow::Result<String>;
 }
 
-fn parse_root_is_purelib_from_wheel(content: &[u8]) -> anyhow::Result<bool> {
+pub fn parse_root_is_purelib_from_wheel(content: &[u8]) -> anyhow::Result<bool> {
     let msg = mailparse::parse_mail(content)?;
     let headers = msg.get_headers();
     let header = headers
         .get_first_header("Root-Is-Purelib")
-        .ok_or_else(|| anyhow!(""))?;
+        .ok_or_else(|| anyhow!("XXX"))?;
     Ok(matches!(
         rfc2047_decoder::decode(header.get_value_raw())?.as_str(),
         "true" | "True"

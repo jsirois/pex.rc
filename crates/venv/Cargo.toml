@@ -16,10 +16,12 @@ interpreter = { path = "../interpreter" }
 itertools = { workspace = true }
 log = { workspace = true }
 logging_timer = { workspace = true }
+pelite = { workspace = true }
 pex = { path = "../pex" }
 platform = { path = "../platform" }
 python-platform = { path = "../python-platform" }
 rayon = { workspace = true }
+regex = { workspace = true }
 resolver = { path = "../resolver" }
 rust-ini = { workspace = true }
 scripts = { path = "../scripts" }
