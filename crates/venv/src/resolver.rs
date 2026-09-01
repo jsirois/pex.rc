@@ -380,11 +380,6 @@ impl PythonScript {
     }
 
     fn detect_windows(path: &Path) -> anyhow::Result<Option<Self>> {
-        eprintln!(">>> detect_windows script: {path}", path=path.display());
-        if !is_executable(path)? {
-            eprintln!("<<< not executable.");
-            return Ok(None);
-        }
         if let Ok(mut zip) = ZipArchive::new(File::open(path)?)
             && zip.by_name("__main__.py").is_ok()
         {
@@ -394,20 +389,17 @@ impl PythonScript {
             let mut contents = Vec::with_capacity(pe_contents_len as usize);
             let mut pe_contents = file.take(pe_contents_len);
             pe_contents.read_to_end(&mut contents)?;
-            let pe_file = PeFile::from_bytes(&contents)?;
-
-            let path = pe_contents.into_inner().into_path();
-            let is_windowed = IMAGE_SUBSYSTEM_WINDOWS_GUI
-                == match pe_file.optional_header() {
+            if let Ok(pe_file) = PeFile::from_bytes(&contents) {
+                let path = pe_contents.into_inner().into_path();
+                let is_windowed = IMAGE_SUBSYSTEM_WINDOWS_GUI
+                    == match pe_file.optional_header() {
                     Wrap::T32(header) => header.Subsystem,
                     Wrap::T64(header) => header.Subsystem,
                 };
-
-            Ok(Some(Self::Windows { path, is_windowed }))
-        } else {
-            eprintln!("<<< not a zip containing __main__.py.");
-            Ok(None)
+                return Ok(Some(Self::Windows { path, is_windowed }))
+            }
         }
+        Ok(None)
     }
 
     fn re_write(&self, sink: &mut impl Write) -> anyhow::Result<()> {
