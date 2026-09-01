@@ -205,7 +205,7 @@ impl InstalledWheel {
                 } else if let Ok(data_rel_path) = abs_path.strip_prefix(&install_paths.data) {
                     data_dir.join("data").join(data_rel_path)
                 } else {
-                    bail!("XXX")
+                    bail!("XXX: Unexpected path: {path}", path=entry.path.display())
                 };
                 PosixPath::new(Cow::Owned(data_dir_rel_path), false)?
             };
